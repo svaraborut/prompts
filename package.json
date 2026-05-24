@@ -1,6 +1,6 @@
 {
-	"name": "@svaraborut/prompt",
-	"version": "0.1.0",
+	"name": "@svara/prompts",
+	"version": "0.0.0",
 	"description": "Tiny ergonomic tagged-template utility for assembling LLM prompts",
 	"type": "module",
 	"main": "./dist/index.cjs",
@@ -33,7 +33,7 @@
 		"tagged-template"
 	],
 	"license": "MIT",
-	"author": "svaraborut",
+	"author": "Borut Svara <borut@svara.io>",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/svaraborut/prompts.git"
