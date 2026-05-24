@@ -1,0 +1,46 @@
+{
+	"name": "@svaraborut/prompt",
+	"version": "0.1.0",
+	"description": "Tiny ergonomic tagged-template utility for assembling LLM prompts",
+	"type": "module",
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsup",
+		"dev": "tsup --watch",
+		"test": "bun test",
+		"typecheck": "tsc --noEmit",
+		"prepublishOnly": "bun run typecheck && bun run test && bun run build"
+	},
+	"keywords": [
+		"prompt",
+		"llm",
+		"template",
+		"anthropic",
+		"openai",
+		"tagged-template"
+	],
+	"license": "MIT",
+	"author": "svaraborut",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/svaraborut/prompts.git"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"tsup": "^8.3.5",
+		"typescript": "^5.7.2"
+	}
+}

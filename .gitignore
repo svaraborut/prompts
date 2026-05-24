@@ -1,0 +1,9 @@
+
+# generated
+.claude
+node_modules
+dist
+*.tsbuildinfo
+
+# bun
+bun.lockb
