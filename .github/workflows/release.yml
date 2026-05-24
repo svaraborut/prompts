@@ -31,16 +31,19 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+
+      # npm Trusted Publishing requires npm >= 11.5.1; Node 22 ships with npm 10.
+      - run: npm install -g npm@latest
 
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun test
       - run: bun run build
 
+      # No NPM_TOKEN: npm exchanges the OIDC id-token (id-token: write above)
+      # with the registry for a short-lived publish token. Provenance is implicit.
       - run: npx --yes semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: 'true'

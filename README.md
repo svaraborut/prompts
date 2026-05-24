@@ -1,4 +1,4 @@
-# prompt
+# prompts
 
 A tiny, ergonomic tagged-template utility for assembling LLM prompts in TypeScript.
 
@@ -25,12 +25,17 @@ The library is intentionally small: a single tagged template (`prompt` / `ai`) p
 
 ## Install
 
-Copy `prompt.ts` into your project. No runtime dependencies.
+```sh
+bun add @svara/prompts
+# or: npm i @svara/prompts
+```
+
+Zero runtime dependencies.
 
 ## Quick start
 
 ```ts
-import { prompt, ai } from './prompt'
+import { prompt, ai } from '@svara/prompts'
 
 const p = ai`
   Summarize the following text in one sentence.
@@ -82,17 +87,36 @@ After assembly the output is cleaned up:
 6. **Primitives** — `String(value).trim()`.
 7. **Nullish / `false`** — empty string.
 
-### `JsonValue<T>`
+### `JsonValue<T>` and plain objects
 
-Wrap a value to force JSON-fence rendering even when it would otherwise be treated as a primitive or skipped:
+Any plain object is auto-rendered as a JSON code fence — no wrapper required. `JsonValue<T>` is only needed when you want to force a specific value (e.g. an array, or a primitive that would otherwise be stringified) into the JSON-fence path.
 
 ```ts
-import { JsonValue, ai } from './prompt'
+import { JsonValue, ai } from '@svara/prompts'
+
+ai`
+  Config:
+  ${{ retries: 3, timeoutMs: 5_000 }}
+`
+// Config:
+// ```json
+// {
+//   "retries": 3,
+//   "timeoutMs": 5000
+// }
+// ```
 
 ai`
   Config:
   ${new JsonValue({ retries: 3, timeoutMs: 5_000 })}
 `
+// Config:
+// ```json
+// {
+//   "retries": 3,
+//   "timeoutMs": 5000
+// }
+// ```
 ```
 
 ### Zod (and other schema libs)
@@ -101,6 +125,7 @@ Any object with a `toJSONSchema()` method is rendered as its schema. Zod v4 is t
 
 ```ts
 import { z } from 'zod'
+import { ai } from '@svara/prompts'
 
 const UserSchema = z.object({ id: z.string(), name: z.string() })
 
@@ -108,6 +133,17 @@ ai`
   Return data matching this schema:
   ${UserSchema}
 `
+// Return data matching this schema:
+// ```json
+// {
+//   "type": "object",
+//   "properties": {
+//     "id": { "type": "string" },
+//     "name": { "type": "string" }
+//   },
+//   "required": ["id", "name"]
+// }
+// ```
 ```
 
 ### Custom render protocol
@@ -115,7 +151,7 @@ ai`
 For your own classes, opt in via the exported `renderPrompt` symbol:
 
 ```ts
-import { renderPrompt, ai } from './prompt'
+import { renderPrompt, ai } from '@svara/prompts'
 
 class Document {
   constructor(public title: string, public body: string) {}
@@ -131,8 +167,14 @@ class Document {
 ai`
   Read the document below and answer the question.
 
-  ${new Document('Onboarding', '...')}
+  ${new Document('Onboarding', 'Welcome to the team.\nRead the handbook.')}
 `
+// Read the document below and answer the question.
+//
+// # Onboarding
+//
+// Welcome to the team.
+// Read the handbook.
 ```
 
 The value returned from `[renderPrompt]()` is itself a `PromptValue` and gets re-flattened — so you can return a string, an array, another `ai\`\`` result, or a `JsonValue`.
