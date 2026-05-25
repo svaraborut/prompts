@@ -1,27 +1,76 @@
 # prompts
 
-A tiny, ergonomic tagged-template utility for assembling LLM prompts in TypeScript.
+**Prompts that read like prompts.**
 
-It turns this:
+[![npm](https://img.shields.io/npm/v/@svara/prompts.svg)](https://www.npmjs.com/package/@svara/prompts) [![size](https://img.shields.io/bundlephobia/minzip/@svara/prompts)](https://bundlephobia.com/package/@svara/prompts) [![license](https://img.shields.io/npm/l/@svara/prompts.svg)](./LICENSE)
+
+A tiny tagged-template utility for assembling LLM prompts in TypeScript. Indentation-aware, multi-line safe, with escape hatches for JSON, Zod, and your own classes.
+
+## Before / after
+
+Plain template literals leak your source indentation into the prompt, lose line prefixes on multi-line interpolations, and render objects as `[object Object]`:
 
 ```ts
-const p = ai`
-  You are a helpful assistant.
+function build(context: string, items: string[], schema: object) {
+  return `
+    You are a helpful assistant.
 
-  Context:
-  > ${context}
+    Context:
+    > ${context}
 
-  Items:
-  - ${items}
+    Items:
+    ${items.map(i => `- ${i}`).join('\n')}
 
-  Schema:
-  ${UserSchema}
-`
+    Schema:
+    ${schema}
+  `
+}
+
+build('line one\nline two', ['apple', 'banana'], { type: 'object' })
+// ←  4-space indent on every line
+// ←  "line two" loses its `> ` prefix
+// ←  list items lose their `    ` indent
+// ←  schema renders as "[object Object]"
 ```
 
-...into a clean, well-indented prompt string ready to send to a model.
+Same prompt with `prompts`:
 
-The library is intentionally small: a single tagged template (`prompt` / `ai`) plus a factory (`promptCreate`) for advanced configuration. All conditionals, loops, and composition stay in plain JavaScript inside `${...}` — no DSL, no helpers to learn.
+```ts
+import { ai } from '@svara/prompts'
+
+function build(context: string, items: string[], schema: object) {
+  return ai`
+    You are a helpful assistant.
+
+    Context:
+    > ${context}
+
+    Items:
+    - ${items}
+
+    Schema:
+    ${schema}
+  `
+}
+
+build('line one\nline two', ['apple', 'banana'], { type: 'object' })
+// You are a helpful assistant.
+//
+// Context:
+// > line one
+// > line two
+//
+// Items:
+// - apple
+// - banana
+//
+// Schema:
+// ```json
+// {
+//   "type": "object"
+// }
+// ```
+```
 
 ## Install
 
@@ -30,14 +79,21 @@ bun add @svara/prompts
 # or: npm i @svara/prompts
 ```
 
-Zero runtime dependencies.
+Zero runtime dependencies. Ships ESM + CJS + types.
+
+## Why prompts?
+
+- **Indentation-aware.** Write prompts indented with your code. The common leading indent is stripped from the output.
+- **Line-prefix preservation.** `- ${items}` and `> ${quote}` work for multi-line values without per-line string manipulation.
+- **Escape hatches built in.** Plain objects render as JSON fences. Zod schemas render as JSON Schema. Your own classes opt in via the `renderPrompt` symbol.
+- **Two-pass truncation.** Per-value and whole-output budgets, with built-in `end` / `start` / `middle` modes or a custom function — useful for keeping context windows under control.
 
 ## Quick start
 
 ```ts
-import { prompt, ai } from '@svara/prompts'
+import { ai } from '@svara/prompts'
 
-const p = ai`
+const prompt = ai`
   Summarize the following text in one sentence.
 
   Text:
@@ -45,11 +101,13 @@ const p = ai`
 `
 ```
 
-`prompt` and `ai` are the same function — `ai` is just an alias that reads nicely at call sites.
+`ai` is an alias for `prompt` — same function, reads better at call sites.
 
-## How it works
+## Recipes
 
-The tag walks the template and, for each interpolated value, captures the **prefix of the line that value sits on**. Every line of the rendered value is then re-emitted with that prefix. This is what makes lists, block quotes, and multi-line interpolations look right:
+### Lists and quotes with multi-line values
+
+The prefix of the line a value sits on is re-applied to every line of the rendered value.
 
 ```ts
 ai`
@@ -62,34 +120,15 @@ ai`
 // - cherry
 
 ai`
-  > ${"line one\nline two"}
+  > ${'line one\nline two'}
 `
 // > line one
 // > line two
 ```
 
-After assembly the output is cleaned up:
+### Embed JSON data
 
-- common leading indentation is stripped (auto-dedent)
-- whitespace-only lines are collapsed to empty
-- runs of 3+ blank lines are reduced to 2
-- the result is trimmed
-
-## Interpolated value types
-
-`flatten` decides how each `${value}` renders. Detection order:
-
-1. **`renderPrompt` symbol** — your own opt-in render protocol (see below).
-2. **`JsonValue`** — explicit "render me as a JSON code fence" wrapper.
-3. **Zod-like** — anything exposing `toJSONSchema()` (e.g. Zod schemas) renders as its JSON Schema in a fenced block.
-4. **Arrays** — each element is flattened and joined with newlines. `null`, `undefined`, and `false` are dropped; `0` and `''` are kept.
-5. **Other objects** — `JSON.stringify`d in a ```` ```json ```` fence.
-6. **Primitives** — `String(value).trim()`.
-7. **Nullish / `false`** — empty string.
-
-### `JsonValue<T>` and plain objects
-
-Any plain object is auto-rendered as a JSON code fence — no wrapper required. `JsonValue<T>` is only needed when you want to force a specific value (e.g. an array, or a primitive that would otherwise be stringified) into the JSON-fence path.
+Any plain object is auto-rendered as a JSON code fence. Wrap in `JsonValue` only when you need to force an array or primitive into the JSON path.
 
 ```ts
 import { JsonValue, ai } from '@svara/prompts'
@@ -107,21 +146,21 @@ ai`
 // ```
 
 ai`
-  Config:
-  ${new JsonValue({ retries: 3, timeoutMs: 5_000 })}
+  Tags:
+  ${new JsonValue(['urgent', 'billing'])}
 `
-// Config:
+// Tags:
 // ```json
-// {
-//   "retries": 3,
-//   "timeoutMs": 5000
-// }
+// [
+//   "urgent",
+//   "billing"
+// ]
 // ```
 ```
 
-### Zod (and other schema libs)
+### Embed a Zod schema
 
-Any object with a `toJSONSchema()` method is rendered as its schema. Zod v4 is the typical case:
+Any object exposing `toJSONSchema()` renders as its schema. Works with Zod v4 out of the box.
 
 ```ts
 import { z } from 'zod'
@@ -146,9 +185,9 @@ ai`
 // ```
 ```
 
-### Custom render protocol
+### Render your own classes
 
-For your own classes, opt in via the exported `renderPrompt` symbol:
+Opt in by exposing the `renderPrompt` symbol. The returned value is itself a `PromptValue` and is re-flattened — return a string, an array, another `ai\`...\`` result, or a `JsonValue`.
 
 ```ts
 import { renderPrompt, ai } from '@svara/prompts'
@@ -177,88 +216,22 @@ ai`
 // Read the handbook.
 ```
 
-The value returned from `[renderPrompt]()` is itself a `PromptValue` and gets re-flattened — so you can return a string, an array, another `ai\`\`` result, or a `JsonValue`.
+### Cap prompt size
 
-## The factory: `promptCreate(options?)`
-
-`promptCreate` returns a configured `prompt` tag. With no arguments it behaves identically to bare `prompt`.
+`promptCreate` returns a configured tag. Two independent truncation passes: per-value (each `${...}` is capped on its own) and whole-output (a safety net on the final string).
 
 ```ts
-import { promptCreate } from './prompt'
+import { promptCreate } from '@svara/prompts'
 
 const ai = promptCreate({
-  dedent: true,
+  valueMaxChars: 2_000,
+  valueTruncate: 'middle',
   maxChars: 8_000,
   truncate: 'end',
 })
-
-ai`...`
 ```
 
-### Options
-
-All options are optional and flat.
-
-```ts
-type TruncateMode   = 'end' | 'start' | 'middle'
-type TruncateMarker = string | ((removedChars: number) => string)
-
-interface TruncateCtx {
-  maxChars: number
-  mode: TruncateMode
-  marker: TruncateMarker
-  truncate: (text: string, mode?: TruncateMode) => string
-}
-
-type OutputTruncateFn = (text: string, ctx: TruncateCtx) => string
-type ValueTruncateFn  = (rendered: string, original: PromptValue, ctx: TruncateCtx) => string
-
-type OutputTruncate =
-  | { maxChars: number; truncate?: TruncateMode; marker?: TruncateMarker }
-  | { truncate: OutputTruncateFn; maxChars?: number; marker?: TruncateMarker }
-
-type ValueTruncate =
-  | { valueMaxChars: number; valueTruncate?: TruncateMode; valueMarker?: TruncateMarker }
-  | { valueTruncate: ValueTruncateFn; valueMaxChars?: number; valueMarker?: TruncateMarker }
-
-type PromptOptions =
-  { dedent?: boolean }
-  & Partial<OutputTruncate>
-  & Partial<ValueTruncate>
-```
-
-| Option            | Default                     | Effect                                                                 |
-|-------------------|-----------------------------|------------------------------------------------------------------------|
-| `dedent`          | `true`                      | Strip common leading indentation from the static template parts.       |
-| `maxChars`        | —                           | Cap on the whole assembled output. Required when `truncate` is a mode. |
-| `truncate`        | `'end'` (when `maxChars` set) | Built-in mode or full custom function for the whole-output pass.     |
-| `marker`          | `…[truncated N chars]`      | Marker for the whole-output pass. String or `(removed) => string`.     |
-| `valueMaxChars`   | —                           | Per-value cap. Required when `valueTruncate` is a mode.                |
-| `valueTruncate`   | `'end'` (when `valueMaxChars` set) | Built-in mode or full custom function for the per-value pass.    |
-| `valueMarker`     | `…[truncated N chars]`      | Marker for the per-value pass.                                         |
-
-The discriminated unions enforce at compile time that:
-- a mode string requires its matching `maxChars` (or `valueMaxChars`),
-- a function in `truncate` / `valueTruncate` takes over and may read `maxChars` / `marker` from `ctx` or ignore them.
-
-### Truncation passes
-
-Both passes are independent and both can fire on the same render:
-
-1. **Per-value pass** runs inside `flatten`, on each interpolated value after it is rendered to a string.
-2. **Whole-output pass** runs once on the final assembled string after whitespace cleanup, as a safety net.
-
-#### Built-in modes
-
-- `'end'` — keep the head, drop the tail, append the marker.
-- `'start'` — drop the head, keep the tail, prepend the marker.
-- `'middle'` — keep head and tail, drop the middle, insert the marker between them.
-
-The default marker is `…[truncated N chars]`, where `N` is the number of characters removed.
-
-#### Custom truncation functions
-
-A function in `truncate` or `valueTruncate` fully owns the decision. It receives a `ctx` containing the resolved options plus `ctx.truncate(text, mode?)` — a delegate back into the library's built-in algorithm.
+For full control, pass a function. It receives a `ctx` with `ctx.truncate(text, mode?)` to delegate back into the built-in algorithm.
 
 ```ts
 const ai = promptCreate({
@@ -266,67 +239,39 @@ const ai = promptCreate({
   marker: (removed) => `\n…[dropped ${removed} chars]`,
   truncate: (text, ctx) => {
     if (text.length <= ctx.maxChars) return text
-    // Custom rule: try middle first, fall back to end.
     const mid = ctx.truncate(text, 'middle')
     return mid.length <= ctx.maxChars ? mid : ctx.truncate(text, 'end')
   },
 })
 ```
 
-The per-value variant additionally receives the original `PromptValue`, so it can branch on type — e.g. render a giant array differently from a long string:
+### Compose prompts
+
+Every `ai\`...\`` returns a string. Compose by ordinary interpolation. Conditionals are plain JS — falsy values render as nothing and surrounding blank lines collapse.
 
 ```ts
-const ai = promptCreate({
-  valueMaxChars: 1_000,
-  valueTruncate: (rendered, original, ctx) => {
-    if (Array.isArray(original) && original.length > 50) {
-      return ctx.truncate(rendered, 'end')
-    }
-    return ctx.truncate(rendered, 'middle')
-  },
-})
-```
+const persona = ai`You are a senior reviewer. Be concise.`
+const task = ai`Review the diff and list risks.`
 
-## Composition
-
-Because every `prompt\`...\`` call returns a plain string and accepts plain strings as values, prompts compose by ordinary interpolation:
-
-```ts
-const persona = ai`
-  You are a senior reviewer. Be concise.
-`
-
-const task = ai`
-  Review the diff and list risks.
-`
-
-const full = ai`
+ai`
   ${persona}
 
   ${task}
+
+  ${user.isAdmin && ai`
+    Admin notes:
+    ${adminNotes}
+  `}
 
   Diff:
   ${diff}
 `
 ```
 
-Conditionals are plain JS — no `when` / `if` helpers:
+## API
 
 ```ts
-ai`
-  ${user.isAdmin && ai`
-    Admin notes:
-    ${adminNotes}
-  `}
-`
-```
-
-A falsy interpolation renders as nothing and its surrounding blank lines are collapsed by the cleanup pass.
-
-## API surface
-
-```ts
-export class JsonValue<T = any>
+export class JsonValue<T = unknown>
 export const renderPrompt: unique symbol
 export type  PromptValue
 export type  PromptOptions
@@ -335,12 +280,38 @@ export function promptCreate(options?: PromptOptions): typeof prompt
 export const ai: typeof prompt
 ```
 
+### `PromptOptions`
+
+All optional, all flat. Discriminated unions enforce that a mode string requires its matching `maxChars`.
+
+- `dedent` — strip common leading indentation from the static template parts. Default `true`.
+- `maxChars` — cap on the whole assembled output. Required when `truncate` is a mode string.
+- `truncate` — `'end' | 'start' | 'middle'` or a custom `(text, ctx) => string`. Default `'end'` when `maxChars` is set.
+- `marker` — string or `(removedChars) => string` used by the built-in modes. Default ``…[truncated N chars]``.
+- `valueMaxChars`, `valueTruncate`, `valueMarker` — same three, applied per-interpolated-value inside `flatten`. The custom function additionally receives the original `PromptValue`.
+
+Both passes are independent and can both fire on the same render — per-value first, whole-output as a safety net.
+
+### Detection order in `flatten`
+
+1. `renderPrompt` symbol — your own opt-in.
+2. `JsonValue` — explicit JSON-fence wrapper.
+3. `toJSONSchema()` — Zod-like schemas.
+4. Arrays — flatten each element, drop `null`/`undefined`/`false` (keeps `0` and `''`), join with newlines.
+5. Other objects — `JSON.stringify` in a ```` ```json ```` fence.
+6. Primitives — `String(value).trim()`.
+7. Nullish or `false` — empty string.
+
 ## Non-goals
 
-Kept deliberately out of scope to stay simple:
+Kept deliberately out of scope:
 
-- token counting (needs a model-specific tokenizer; belongs in the API client layer)
+- token counting (model-specific; belongs in the API client layer)
 - async / `Promise` values (await before passing in)
-- message arrays, roles, tools, multi-modal content (caller's responsibility)
+- message arrays, roles, tools, multi-modal content
 - helper sugar like `section()`, `when()`, `list()` (use plain JS)
 - markdown / XML escaping (caller's responsibility)
+
+## License
+
+MIT
